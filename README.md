@@ -1,45 +1,47 @@
 # 📡 Signum
 
-> **AI-powered crypto trading signal engine** — rules-based + ML + Finora AI analysis, built on WEEX perpetual swap data with a React Native mobile frontend.
+> **AI-powered crypto trading signal engine** — rules-based + ML + Finora AI analysis, built on multi-exchange perpetual swap data (WEEX, Binance, Bybit, OKX) with a React Native mobile frontend.
 
 ---
 
 ## 🧠 What It Does
 
-Signum fetches live OHLCV market data from **WEEX** (perpetual swaps) via CCXT, runs it through a multi-layer signal engine, and delivers **LONG / SHORT / NEUTRAL signals** with confidence scores directly to your phone.
+Signum fetches live OHLCV market data from supported exchanges via CCXT, runs it through a multi-layer signal engine, and delivers **LONG / SHORT / NEUTRAL signals** with confidence scores directly to your phone.
 
-**Three signal layers:**
-1. **Rules engine** — RSI, MACD, Bollinger Bands, EMA trend, plus WEEX-specific funding rate & open interest filters
-2. **ML model** — XGBoost-trained classifier for pattern-based prediction
+**Signal layers:**
+1. **Rules engine** — RSI, MACD, Bollinger Bands, EMA trend, plus funding rate & open interest filters
+2. **ML model** — XGBoost (and optional LSTM) classifier for pattern-based prediction
 3. **Finora AI** — Claude-powered natural-language trade analysis with SMC/ICT framing, key levels, and a concrete trade setup (entry zone, TP1, TP2, SL)
-
-**Firebase push notifications** deliver new signals in real time even when the app is in the background.
+4. **Backtester** — simulates the rules engine over historical candles and reports win rate, P&L curve, and individual trades
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-WEEX Exchange (Perpetual Swaps)
+Exchange (WEEX / Binance / Bybit / OKX — Perpetual Swaps)
     │
     ▼
 Python Backend (FastAPI)
-  ├── services/data.py         ← OHLCV + ticker + funding rate + open interest (WEEX via CCXT)
-  │                               Binance as automatic read-only fallback
-  ├── services/indicators.py   ← RSI, MACD, ATR, Bollinger Bands, EMA
-  ├── services/rules.py        ← Rules-based signal engine with WEEX funding rate / OI filters
-  ├── services/finora_ai.py    ← Finora AI: Claude-powered SMC/ICT trade analysis
-  ├── ml/train.py              ← XGBoost model training
-  ├── ml/predict.py            ← Live ML predictions
-  └── routes/signals.py        ← REST API endpoints
+  ├── services/data.py            ← OHLCV + ticker + funding rate + open interest (CCXT, multi-exchange)
+  │                                  Binance as automatic fallback on network errors
+  ├── services/indicators.py      ← RSI, MACD, ATR, Bollinger Bands, EMA, add_all_indicators()
+  ├── services/rules.py           ← Rules-based signal engine with funding rate / OI filters
+  ├── services/backtest_service.py← Backtest simulation (win rate, P&L curve, trades)
+  ├── services/finora_ai.py       ← Finora AI: Claude-powered SMC/ICT trade analysis
+  ├── ml/train.py                 ← XGBoost / LSTM model training
+  ├── ml/ml_predict.py            ← Live ML predictions
+  └── routes/signals.py           ← REST API endpoints (signals, backtest, portfolio)
     │
     ▼
 React Native App (Expo)
-  ├── DashboardScreen          ← Live signal feed (rules / ML / both filter)
-  ├── DetailScreen             ← Candlestick chart + entry / TP / SL levels
-  ├── SignalCard               ← LONG/SHORT card with confidence %
-  ├── FinoraAnalysisCard       ← AI analysis card (trend, bias, key levels, setup)
-  └── Firebase FCM             ← Background push notifications for new signals
+  ├── DashboardScreen             ← Live signal feed
+  ├── DetailScreen                ← Candlestick chart + entry / TP / SL levels
+  ├── BacktestScreen              ← Run and view backtest results
+  ├── PortfolioScreen             ← Track open positions and P&L
+  ├── SettingsScreen              ← App configuration
+  ├── SignalCard                  ← LONG/SHORT card with confidence %
+  └── FinoraAnalysisCard          ← AI analysis card (trend, bias, key levels, setup)
 ```
 
 ---
@@ -54,32 +56,36 @@ Signum/
 │   │   ├── routes/
 │   │   │   └── signals.py
 │   │   ├── services/
-│   │   │   ├── data.py           ← WEEX + Binance fallback
-│   │   │   ├── indicators.py
-│   │   │   ├── rules.py          ← WEEX funding rate / OI signal filters
-│   │   │   └── finora_ai.py      ← Finora AI (Anthropic Claude)
+│   │   │   ├── data.py             ← multi-exchange (WEEX/Binance/Bybit/OKX) + fallback
+│   │   │   ├── indicators.py       ← incl. add_all_indicators()
+│   │   │   ├── rules.py            ← funding rate / OI signal filters
+│   │   │   ├── backtest_service.py ← backtest engine
+│   │   │   └── finora_ai.py        ← Finora AI (Anthropic Claude)
 │   │   └── ml/
 │   │       ├── train.py
-│   │       └── predict.py
+│   │       └── ml_predict.py
 │   ├── scripts/
-│   │   └── backtest.py
+│   │   └── backtest.py             ← CLI backtest runner
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/
 │   ├── src/
 │   │   ├── api/
-│   │   │   ├── signals.js              ← API client (all endpoints)
-│   │   │   └── FinoraAnalysisCard.js   ← Finora AI UI card
+│   │   │   └── signals.js              ← API client (all endpoints)
 │   │   ├── components/
-│   │   │   └── SignalCard.js
+│   │   │   ├── SignalCard.js
+│   │   │   └── FinoraAnalysisCard.js   ← Finora AI UI card
 │   │   ├── screens/
-│   │   │   ├── DashboardScreen.js      ← Live feed + Firebase FCM
-│   │   │   └── DetailScreen.js         ← Candlestick chart + full signal detail
+│   │   │   ├── DashboardScreen.js
+│   │   │   ├── DetailScreen.js         ← Candlestick chart + full signal detail
+│   │   │   ├── BacktestScreen.js
+│   │   │   ├── PortfolioScreen.js
+│   │   │   └── SettingsScreen.js
 │   │   └── hooks/
 │   │       └── useSignals.js
 │   ├── App.js
 │   └── package.json
-├── env.example                 ← Root env (WEEX + Anthropic keys)
+├── env.example                 ← Root env (exchange + Anthropic keys)
 └── README.md
 ```
 
@@ -90,13 +96,13 @@ Signum/
 | Layer | Technology |
 |---|---|
 | Backend API | Python 3.10+, FastAPI, Uvicorn |
-| Exchange Data | CCXT 4.x — **WEEX** (primary), Binance (fallback) |
-| Technical Indicators | RSI, MACD, ATR, Bollinger Bands, EMA (pandas-ta) |
-| Signal Engine | Rules-based + WEEX funding rate/OI filters |
-| ML Model | XGBoost, scikit-learn, joblib |
-| AI Analysis | **Finora AI** powered by Anthropic Claude (claude-sonnet) |
+| Exchange Data | CCXT 4.5.x — WEEX, Binance, Bybit, OKX (Binance as automatic fallback) |
+| Technical Indicators | RSI, MACD, ATR, Bollinger Bands, EMA (custom pandas implementations) |
+| Signal Engine | Rules-based + funding rate/OI filters |
+| Backtesting | Custom rules-engine simulation over historical OHLCV |
+| ML Model | XGBoost, scikit-learn, joblib (optional LSTM via TensorFlow) |
+| AI Analysis | **Finora AI** powered by Anthropic Claude |
 | Mobile Frontend | React Native 0.74, Expo 51, React Navigation |
-| Push Notifications | **Firebase Cloud Messaging (FCM)** via @react-native-firebase |
 | Charts | Custom SVG candlestick chart (react-native-svg) |
 
 ---
@@ -116,16 +122,16 @@ Install these before starting:
 | Expo Go | latest | App Store / Google Play |
 
 You also need:
-- A **WEEX account** with API keys → https://www.weex.com → Account → API Management (read-only keys are sufficient)
 - An **Anthropic API key** for Finora AI → https://console.anthropic.com
+- (Optional) API keys for whichever exchange you want to use (WEEX, Binance, Bybit, OKX). Public market data (OHLCV, ticker) works without keys — keys are only needed for private/account endpoints.
 
 ---
 
 ### Step 1 — Clone & Open
 
 ```bash
-git clone https://github.com/crinatarajan/Crypto-Signal-App.git
-cd Crypto-Signal-App
+git clone https://github.com/crinatarajan/Signum.git
+cd Signum
 code .
 ```
 
@@ -143,23 +149,36 @@ copy env.example .env
 cp env.example .env
 ```
 
-Open `.env` and fill in:
+Then do the same for the backend:
 
-```env
-# WEEX Exchange
-WEEX_API_KEY=your_weex_api_key_here
-WEEX_SECRET=your_weex_secret_here
-
-# Finora AI (Anthropic)
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-
-# App settings
-LOG_LEVEL=INFO
-DEFAULT_EXCHANGE=weex
-DEFAULT_TIMEFRAME=1h
+```bash
+cd backend
+copy .env.example .env      # Windows
+cp .env.example .env        # macOS/Linux
 ```
 
-> ⚠️ Never commit `.env` — it is already in `.gitignore`.
+Open `backend/.env` and fill in at minimum:
+
+```env
+EXCHANGE=weex
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+```
+
+Add exchange API keys only if you need authenticated/private endpoints:
+
+```env
+WEEX_API_KEY=
+WEEX_SECRET=
+BINANCE_API_KEY=
+BINANCE_SECRET=
+BYBIT_API_KEY=
+BYBIT_SECRET=
+OKX_API_KEY=
+OKX_SECRET=
+OKX_PASSPHRASE=
+```
+
+> ⚠️ Never commit `.env` files — they are already in `.gitignore`.
 
 ---
 
@@ -178,15 +197,31 @@ venv\Scripts\activate
 # Activate (macOS/Linux)
 # source venv/bin/activate
 
-# Install dependencies
+# Install dependencies (tensorflow is optional, only needed for LSTM)
 pip install -r requirements.txt
 
 # Start the server
 uvicorn app.main:app --reload
 ```
 
-✅ Backend running at: `http://127.0.0.1:8000`  
+✅ Backend running at: `http://127.0.0.1:8000`
 📖 Interactive API docs: `http://127.0.0.1:8000/docs`
+
+Quick smoke test:
+
+```bash
+curl http://127.0.0.1:8000/health
+curl "http://127.0.0.1:8000/api/signals/BTC-USDT?timeframe=1h&exchange=weex"
+curl -X POST http://127.0.0.1:8000/api/signals/backtest \
+  -H "Content-Type: application/json" \
+  -d "{\"symbol\":\"BTC/USDT\",\"timeframe\":\"1h\",\"candles\":300}"
+```
+
+CLI backtest (alternative):
+
+```bash
+python -m scripts.backtest --symbol BTC/USDT --timeframe 1h --candles 500
+```
 
 ---
 
@@ -202,7 +237,6 @@ npm install
 
 # Install additional native dependencies
 npx expo install react-native-svg
-npm install @react-native-firebase/app @react-native-firebase/messaging
 
 # Start Expo
 npx expo start
@@ -217,18 +251,12 @@ npx expo start
 
 ### Step 5 — Connect Frontend to Backend
 
-In `frontend/src/api/signals.js` the base URL defaults to `http://localhost:8000`.
+In `frontend/src/api/signals.js` the base URL defaults to `http://localhost:8000/api`.
 
-If testing on a **physical phone**, replace `localhost` with your machine's local IP:
+If testing on a **physical phone**, create `frontend/.env` with your machine's local IP:
 
-```js
-// frontend/src/api/signals.js
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.x.x:8000";
-```
-
-Or create `frontend/.env`:
 ```env
-EXPO_PUBLIC_API_URL=http://192.168.x.x:8000
+EXPO_PUBLIC_API_URL=http://192.168.x.x:8000/api
 ```
 
 ---
@@ -238,28 +266,20 @@ EXPO_PUBLIC_API_URL=http://192.168.x.x:8000
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Health check |
-| `GET` | `/api/signals/weex-symbols` | List active WEEX perpetual swap symbols |
+| `GET` | `/api/signals/exchanges` | List supported exchanges |
+| `GET` | `/api/signals/symbols?exchange=weex&quote=USDT` | List active symbols on an exchange |
 | `GET` | `/api/signals/{symbol}` | Rules-based LONG/SHORT/NEUTRAL signal |
 | `GET` | `/api/signals/{symbol}/full` | Combined rules signal + Finora AI analysis |
 | `POST` | `/api/signals/ai-analysis` | Finora AI analysis (standalone) |
-| `GET` | `/api/signals/ticker/{symbol}` | Live WEEX ticker (price, volume, 24h change) |
+| `GET` | `/api/signals/ticker/{symbol}` | Live ticker (price, volume, 24h change) |
+| `POST` | `/api/signals/backtest` | Run a backtest and return summary, trades, equity curve |
+| `GET` | `/api/portfolio` | Get saved portfolio positions with live P&L |
+| `POST` | `/api/portfolio` | Add a position |
+| `DELETE` | `/api/portfolio/{symbol}` | Remove a position |
 
-**Symbol format:** URL-encoded, e.g. `BTC%2FUSDT` for `BTC/USDT`
+**Symbol format:** URL-encoded or with a dash, e.g. `BTC-USDT` or `BTC%2FUSDT` for `BTC/USDT`.
 
-Full interactive docs at `http://127.0.0.1:8000/docs` when backend is running.
-
----
-
-## 🔔 Push Notifications (Firebase)
-
-The Dashboard screen integrates Firebase Cloud Messaging (FCM):
-
-1. Requests notification permissions on launch
-2. Registers the device FCM token with the backend via `/signals/push-register`
-3. Receives real-time signal alerts in the foreground and background
-4. New push signals are merged into the live feed (deduplicated)
-
-To enable Firebase in your own build, add your `google-services.json` (Android) or `GoogleService-Info.plist` (iOS) to the `frontend/` directory.
+Full interactive docs at `http://127.0.0.1:8000/docs` when the backend is running.
 
 ---
 
@@ -272,24 +292,40 @@ Each signal can be enriched with a **Finora-style AI analysis** powered by Anthr
 - Key support & resistance levels
 - One concrete trade setup: entry zone, TP1, TP2, stop-loss, R:R ratio
 - Indicator confluence notes (RSI, MACD, BBands, EMAs)
-- Funding rate & open interest context (WEEX perpetuals)
+- Funding rate & open interest context (perpetual swaps)
 
 > ⚠️ All AI analysis includes the disclaimer: *"This is not investment advice. Always wait for confirmation and manage your risk."*
+
+Requires `ANTHROPIC_API_KEY` to be set in `backend/.env`.
+
+---
+
+## 🧠 ML Models (Optional)
+
+Train a model for a symbol/timeframe before live ML predictions will return non-neutral signals:
+
+```bash
+cd backend
+python -m app.ml.train --symbol BTC/USDT --timeframe 1h
+# or, for an LSTM model (requires tensorflow):
+python -m app.ml.train --symbol BTC/USDT --timeframe 1h --model lstm
+```
+
+Models are saved to `backend/app/ml/models/` (excluded from git via `.gitignore`).
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] WEEX exchange integration (perpetual swaps)
+- [x] Multi-exchange integration (WEEX, Binance, Bybit, OKX)
 - [x] Funding rate + open interest signal filters
 - [x] Finora AI analysis (Claude-powered)
-- [x] Firebase push notifications
 - [x] Candlestick chart in detail screen
 - [x] FinoraAnalysisCard UI component
-- [ ] LSTM model integration
-- [ ] Portfolio tracking screen
-- [ ] Backtest dashboard in the app
-- [ ] Multi-exchange support (Binance as primary option)
+- [x] Backtest engine (API + CLI) with equity curve and trade list
+- [x] Portfolio tracking screen
+- [ ] LSTM model packaging and pretrained models
+- [ ] Push notifications
 
 ---
 
@@ -309,7 +345,7 @@ Search in the Extensions panel (`Ctrl+Shift+X`):
 
 This repo is structured to be Claude-friendly — each file has a single, clear responsibility. When asking for help, reference the file path directly:
 
-> *"Help me improve `backend/app/services/finora_ai.py` to add multi-timeframe analysis"*  
+> *"Help me improve `backend/app/services/finora_ai.py` to add multi-timeframe analysis"*
 > *"Update `frontend/src/screens/DetailScreen.js` to show Finora AI levels on the chart"*
 
 ---
