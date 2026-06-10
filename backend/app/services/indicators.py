@@ -114,3 +114,43 @@ def vwap(
     cumvol = volume.cumsum()
     cumtpv = (typical * volume).cumsum()
     return cumtpv / cumvol
+
+
+# ---------------------------------------------------------------------------
+# Combined feature builder (used by ML training/prediction and backtesting)
+# ---------------------------------------------------------------------------
+
+def add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add all indicator columns to a copy of the OHLCV dataframe.
+
+    Adds: rsi, macd, macd_signal, macd_hist, bb_upper, bb_mid, bb_lower,
+    bb_width, atr, atr_pct, ema_20, ema_50, ema_200.
+    """
+    out = df.copy()
+    close = out["close"]
+    high = out["high"]
+    low = out["low"]
+
+    out["rsi"] = rsi(close)
+
+    macd_line, signal_line, hist = macd(close)
+    out["macd"] = macd_line
+    out["macd_signal"] = signal_line
+    out["macd_hist"] = hist
+
+    bb_upper, bb_mid, bb_lower = bollinger_bands(close)
+    out["bb_upper"] = bb_upper
+    out["bb_mid"] = bb_mid
+    out["bb_lower"] = bb_lower
+    out["bb_width"] = (bb_upper - bb_lower) / bb_mid
+
+    atr_val = atr(high, low, close)
+    out["atr"] = atr_val
+    out["atr_pct"] = atr_val / close
+
+    out["ema_20"] = ema(close, 20)
+    out["ema_50"] = ema(close, 50)
+    out["ema_200"] = ema(close, 200)
+
+    return out

@@ -1,73 +1,103 @@
 /**
- * api/signals.js
- * API client for the Crypto Signal App backend.
- * Primary exchange: WEEX
+ * api/signals.js — Signum API client
+ * Supports multi-exchange, portfolio, and backtest endpoints.
  */
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
+import Constants from "expo-constants";
 
-// ─── helpers ──────────────────────────────────────────────────────────────
+const BASE_URL =
+  Constants.expoConfig?.extra?.apiUrl ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  "http://localhost:8000/api";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function apiFetch(path, options = {}) {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const url = `${BASE_URL}${path}`;
+  const res = await fetch(url, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? "API error");
+    throw new Error(err.detail || `API error ${res.status}`);
   }
   return res.json();
 }
 
-// ─── signal endpoints ──────────────────────────────────────────────────────
+// ─── Exchanges ────────────────────────────────────────────────────────────────
 
-/**
- * Fetch a rules-based LONG / SHORT / NEUTRAL signal from WEEX data.
- * @param {string} symbol  e.g. "BTC/USDT"
- * @param {string} timeframe e.g. "1h"
- */
-export async function fetchSignal(symbol, timeframe = "1h") {
-  const encoded = encodeURIComponent(symbol);
-  return apiFetch(`/signals/${encoded}?timeframe=${timeframe}`);
+export async function fetchExchanges() {
+  return apiFetch("/signals/exchanges");
 }
 
-/**
- * Fetch combined rules signal + Finora AI analysis.
- * @param {string} symbol
- * @param {string} timeframe
- */
-export async function fetchFullSignal(symbol, timeframe = "1h") {
-  const encoded = encodeURIComponent(symbol);
-  return apiFetch(`/signals/${encoded}/full?timeframe=${timeframe}`);
+export async function fetchSymbols(exchange = "weex", quote = "USDT") {
+  return apiFetch(`/signals/symbols?exchange=${exchange}&quote=${quote}`);
 }
 
-/**
- * Request a Finora-style AI analysis.
- * @param {string} symbol
- * @param {string} timeframe
- * @param {string} [extraContext]  Optional context to pass to the AI
- */
-export async function fetchAIAnalysis(symbol, timeframe = "1h", extraContext = "") {
+// ─── Signals ──────────────────────────────────────────────────────────────────
+
+export async function fetchSignal(symbol, timeframe = "1h", exchange = "weex") {
+  const encoded = encodeURIComponent(symbol);
+  return apiFetch(`/signals/${encoded}?timeframe=${timeframe}&exchange=${exchange}`);
+}
+
+export async function fetchFullSignal(symbol, timeframe = "1h", exchange = "weex") {
+  const encoded = encodeURIComponent(symbol);
+  return apiFetch(`/signals/${encoded}/full?timeframe=${timeframe}&exchange=${exchange}`);
+}
+
+export async function fetchAIAnalysis({ symbol, timeframe = "1h", exchange = "weex", limit = 200, extra_context = "" }) {
   return apiFetch("/signals/ai-analysis", {
     method: "POST",
-    body: JSON.stringify({ symbol, timeframe, extra_context: extraContext }),
+    body: JSON.stringify({ symbol, timeframe, exchange, limit, extra_context }),
   });
 }
 
-/**
- * Fetch live WEEX ticker for a symbol.
- * @param {string} symbol
- */
-export async function fetchTicker(symbol) {
+export async function fetchTicker(symbol, exchange = "weex") {
   const encoded = encodeURIComponent(symbol);
-  return apiFetch(`/signals/ticker/${encoded}`);
+  return apiFetch(`/signals/ticker/${encoded}?exchange=${exchange}`);
 }
 
-/**
- * List all active WEEX perpetual swap symbols.
- * @param {string} [quote="USDT"]
- */
-export async function fetchWeexSymbols(quote = "USDT") {
-  return apiFetch(`/signals/weex-symbols?quote=${quote}`);
+// ─── Backtest ─────────────────────────────────────────────────────────────────
+
+export async function runBacktest({
+  symbol,
+  timeframe = "1h",
+  candles = 500,
+  exchange = "weex",
+  target_pct = 0.02,
+  stop_pct = 0.01,
+  forward = 4,
+}) {
+  return apiFetch("/signals/backtest", {
+    method: "POST",
+    body: JSON.stringify({ symbol, timeframe, candles, exchange, target_pct, stop_pct, forward }),
+  });
+}
+
+// ─── Portfolio ────────────────────────────────────────────────────────────────
+
+export async function fetchPortfolio() {
+  return apiFetch("/portfolio");
+}
+
+export async function addPosition({ symbol, exchange, entry_price, quantity, direction, notes = "" }) {
+  return apiFetch("/portfolio", {
+    method: "POST",
+    body: JSON.stringify({ symbol, exchange, entry_price, quantity, direction, notes }),
+  });
+}
+
+export async function removePosition(symbol) {
+  return apiFetch(`/portfolio/${encodeURIComponent(symbol)}`, { method: "DELETE" });
+}
+
+// ─── Push notifications (existing) ───────────────────────────────────────────
+
+export async function registerPushToken(token) {
+  return apiFetch("/signals/register-push", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  }).catch(() => null); // non-critical
 }

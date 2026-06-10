@@ -10,7 +10,7 @@ ccxt>=4.3.0          # WEEX support added in 4.x
 # Data / ML
 pandas>=2.2.0
 numpy>=1.26.0
-scikit-learn>=1.4.0
+scikit-learn==1.5.2
 xgboost>=2.0.3
 joblib>=1.4.0
 

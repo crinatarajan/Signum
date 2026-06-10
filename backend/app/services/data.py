@@ -1,56 +1,80 @@
 """
 data.py  ─  OHLCV + market data fetching
-Primary exchange : WEEX  (via CCXT)
-Fallback exchange: Binance (read-only public data)
+Supports multiple exchanges via CCXT.
+Primary  : WEEX   (perpetual swaps)
+Secondary: Binance (perpetual futures — fallback or explicit)
 """
 
+from __future__ import annotations
 import os
 import ccxt
 import pandas as pd
 from datetime import datetime
 import logging
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Exchange initialisation
+# Exchange registry
 # ---------------------------------------------------------------------------
 
-def _build_weex() -> ccxt.weex:
-    """Instantiate WEEX exchange. API keys are optional for public endpoints."""
-    params: dict = {
-        "apiKey": os.getenv("WEEX_API_KEY", ""),
-        "secret": os.getenv("WEEX_SECRET", ""),
-        "options": {
-            "defaultType": "swap",          # perpetual futures by default
-        },
-    }
-    exchange = ccxt.weex(params)
-    exchange.load_markets()
-    return exchange
+SUPPORTED_EXCHANGES = ["weex", "binance", "bybit", "okx"]
+
+ExchangeName = Literal["weex", "binance", "bybit", "okx"]
+
+_EXCHANGE_CACHE: dict[str, ccxt.Exchange] = {}
 
 
-def _build_fallback() -> ccxt.binance:
-    """Binance as a read-only public fallback."""
-    exchange = ccxt.binance({"options": {"defaultType": "future"}})
-    exchange.load_markets()
-    return exchange
+def _build_exchange(name: str) -> ccxt.Exchange:
+    """Build and cache a CCXT exchange instance by name."""
+    name = name.lower()
+    key = os.getenv(f"{name.upper()}_API_KEY", "")
+    secret = os.getenv(f"{name.upper()}_SECRET", "")
+
+    if name == "weex":
+        ex = ccxt.weex({
+            "apiKey": key,
+            "secret": secret,
+            "options": {"defaultType": "swap"},
+        })
+    elif name == "binance":
+        ex = ccxt.binance({
+            "apiKey": key,
+            "secret": secret,
+            "options": {"defaultType": "future"},
+        })
+    elif name == "bybit":
+        ex = ccxt.bybit({
+            "apiKey": key,
+            "secret": secret,
+            "options": {"defaultType": "linear"},
+        })
+    elif name == "okx":
+        ex = ccxt.okx({
+            "apiKey": key,
+            "secret": secret,
+            "password": os.getenv("OKX_PASSPHRASE", ""),
+            "options": {"defaultType": "swap"},
+        })
+    else:
+        raise ValueError(f"Unsupported exchange: {name}. Choose from {SUPPORTED_EXCHANGES}")
+
+    ex.load_markets()
+    return ex
 
 
-_PRIMARY: ccxt.weex | None = None
-_FALLBACK: ccxt.binance | None = None
+def get_exchange(name: str = "weex") -> ccxt.Exchange:
+    """Return a cached exchange instance, building it on first call."""
+    name = name.lower()
+    if name not in _EXCHANGE_CACHE:
+        _EXCHANGE_CACHE[name] = _build_exchange(name)
+    return _EXCHANGE_CACHE[name]
 
 
-def get_exchange(use_fallback: bool = False):
-    """Return a cached exchange instance."""
-    global _PRIMARY, _FALLBACK
-    if use_fallback:
-        if _FALLBACK is None:
-            _FALLBACK = _build_fallback()
-        return _FALLBACK
-    if _PRIMARY is None:
-        _PRIMARY = _build_weex()
-    return _PRIMARY
+def get_primary_exchange() -> ccxt.Exchange:
+    """Return the configured primary exchange (env var EXCHANGE, default: weex)."""
+    return get_exchange(os.getenv("EXCHANGE", "weex"))
 
 
 # ---------------------------------------------------------------------------
@@ -71,77 +95,93 @@ def fetch_ohlcv(
     symbol: str,
     timeframe: str = "1h",
     limit: int = 200,
-    use_fallback: bool = False,
+    exchange_name: str | None = None,
 ) -> pd.DataFrame:
     """
-    Fetch OHLCV candles from WEEX (or fallback).
+    Fetch OHLCV candles from the specified (or primary) exchange.
+    Automatically falls back to Binance on network errors.
 
     Parameters
     ----------
-    symbol     : e.g. "BTC/USDT"
-    timeframe  : one of TIMEFRAME_MAP keys
-    limit      : number of candles to fetch
-    use_fallback: force Binance instead of WEEX
+    symbol        : e.g. "BTC/USDT"
+    timeframe     : one of TIMEFRAME_MAP keys
+    limit         : number of candles to fetch
+    exchange_name : override exchange ("weex", "binance", "bybit", "okx")
 
     Returns
     -------
-    pd.DataFrame with columns [timestamp, open, high, low, close, volume]
+    pd.DataFrame with columns [open, high, low, close, volume] indexed by timestamp
     """
     tf = TIMEFRAME_MAP.get(timeframe, "1h")
-    exchange = get_exchange(use_fallback)
+    name = exchange_name or os.getenv("EXCHANGE", "weex")
+    exchange = get_exchange(name)
 
     try:
         raw = exchange.fetch_ohlcv(symbol, tf, limit=limit)
     except ccxt.NetworkError as e:
-        logger.warning("WEEX network error — falling back to Binance: %s", e)
-        exchange = get_exchange(use_fallback=True)
+        logger.warning("%s network error — falling back to Binance: %s", name, e)
+        exchange = get_exchange("binance")
         raw = exchange.fetch_ohlcv(symbol, tf, limit=limit)
     except ccxt.ExchangeError as e:
-        logger.error("Exchange error fetching OHLCV for %s: %s", symbol, e)
+        logger.error("Exchange error fetching OHLCV for %s on %s: %s", symbol, name, e)
         raise
 
-    df = pd.DataFrame(
-        raw, columns=["timestamp", "open", "high", "low", "close", "volume"]
-    )
+    df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
     df = df.set_index("timestamp").sort_index()
     return df.astype(float)
 
 
-def fetch_ticker(symbol: str, use_fallback: bool = False) -> dict:
-    """Return latest ticker data for *symbol* from WEEX."""
-    exchange = get_exchange(use_fallback)
+def fetch_ticker(symbol: str, exchange_name: str | None = None) -> dict:
+    """Return latest ticker data for *symbol*."""
+    name = exchange_name or os.getenv("EXCHANGE", "weex")
+    exchange = get_exchange(name)
     try:
         return exchange.fetch_ticker(symbol)
     except ccxt.NetworkError as e:
-        logger.warning("WEEX ticker failed — fallback: %s", e)
-        return get_exchange(use_fallback=True).fetch_ticker(symbol)
+        logger.warning("%s ticker failed — fallback to Binance: %s", name, e)
+        return get_exchange("binance").fetch_ticker(symbol)
 
 
-def list_symbols(quote: str = "USDT") -> list[str]:
-    """Return all perpetual swap symbols quoted in *quote* available on WEEX."""
-    exchange = get_exchange()
+def list_symbols(quote: str = "USDT", exchange_name: str | None = None) -> list[str]:
+    """Return all perpetual swap symbols quoted in *quote* on the given exchange."""
+    name = exchange_name or os.getenv("EXCHANGE", "weex")
+    exchange = get_exchange(name)
     return [
         s for s, m in exchange.markets.items()
-        if m.get("quote") == quote and m.get("type") == "swap" and m.get("active")
+        if m.get("quote") == quote
+        and m.get("type") in ("swap", "future", "linear")
+        and m.get("active")
     ]
 
 
-def fetch_funding_rate(symbol: str) -> dict:
-    """Fetch current funding rate for a perpetual contract on WEEX."""
-    exchange = get_exchange()
+def fetch_funding_rate(symbol: str, exchange_name: str | None = None) -> dict:
+    """Fetch current funding rate for a perpetual contract."""
+    name = exchange_name or os.getenv("EXCHANGE", "weex")
+    exchange = get_exchange(name)
     try:
         return exchange.fetch_funding_rate(symbol)
     except ccxt.BaseError as e:
-        logger.warning("Could not fetch funding rate for %s: %s", symbol, e)
+        logger.warning("Could not fetch funding rate for %s on %s: %s", symbol, name, e)
         return {}
 
 
-def fetch_open_interest(symbol: str) -> dict:
-    """Fetch open interest for a perpetual contract on WEEX."""
-    exchange = get_exchange()
+def fetch_open_interest(symbol: str, exchange_name: str | None = None) -> dict:
+    """Fetch open interest for a perpetual contract."""
+    name = exchange_name or os.getenv("EXCHANGE", "weex")
+    exchange = get_exchange(name)
     try:
         return exchange.fetch_open_interest(symbol)
     except ccxt.BaseError as e:
-        logger.warning("Could not fetch open interest for %s: %s", symbol, e)
+        logger.warning("Could not fetch open interest for %s on %s: %s", symbol, name, e)
         return {}
+
+
+def get_supported_exchanges() -> list[dict]:
+    """Return metadata about all supported exchanges."""
+    return [
+        {"id": "weex",    "name": "WEEX",    "type": "swap",   "primary": True},
+        {"id": "binance", "name": "Binance", "type": "future", "primary": False},
+        {"id": "bybit",   "name": "Bybit",   "type": "linear", "primary": False},
+        {"id": "okx",     "name": "OKX",     "type": "swap",   "primary": False},
+    ]
