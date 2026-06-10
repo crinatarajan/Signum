@@ -1,59 +1,73 @@
 /**
- * api/signals.js — Thin API client for the FastAPI backend.
- *
- * Change BASE_URL to your backend's IP/domain when deploying.
- * For local dev with Expo on a phone: use your machine's LAN IP, e.g. http://192.168.1.10:8000
+ * api/signals.js
+ * API client for the Crypto Signal App backend.
+ * Primary exchange: WEEX
  */
 
-import { Platform } from "react-native";
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
-const BASE_URL = __DEV__
-  ? "http://localhost:8000/api"
-  : "https://your-production-backend.com/api";   // ← update when deploying
+// ─── helpers ──────────────────────────────────────────────────────────────
 
-/**
- * Fetch all active signals for the configured watch pairs.
- * @param {"rules"|"ml"|"both"} engine
- * @returns {Promise<Signal[]>}
- */
-export async function fetchSignals(engine = "rules") {
-  const res = await fetch(`${BASE_URL}/signals?engine=${engine}`);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Fetch a signal for a single symbol.
- * @param {string} symbol  e.g. "BTC/USDT"
- * @param {"rules"|"ml"}  engine
- */
-export async function fetchSignalForSymbol(symbol, engine = "rules") {
-  const encoded = symbol.replace("/", "-");   // BTC/USDT → BTC-USDT
-  const res = await fetch(`${BASE_URL}/signals/${encoded}?engine=${engine}`);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Fetch the configured watch pairs list.
- */
-export async function fetchPairs() {
-  const res = await fetch(`${BASE_URL}/pairs`);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Register the device's FCM push token with the backend.
- * Call once on app start and again whenever the token refreshes.
- * @param {string} token  FCM device token from @react-native-firebase/messaging
- */
-export async function registerPushToken(token) {
-  const res = await fetch(`${BASE_URL}/push-token`, {
-    method: "POST",
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token, platform: Platform.OS }),
+    ...options,
   });
-  if (!res.ok) throw new Error(`Push token registration failed: ${res.status}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "API error");
+  }
   return res.json();
+}
+
+// ─── signal endpoints ──────────────────────────────────────────────────────
+
+/**
+ * Fetch a rules-based LONG / SHORT / NEUTRAL signal from WEEX data.
+ * @param {string} symbol  e.g. "BTC/USDT"
+ * @param {string} timeframe e.g. "1h"
+ */
+export async function fetchSignal(symbol, timeframe = "1h") {
+  const encoded = encodeURIComponent(symbol);
+  return apiFetch(`/signals/${encoded}?timeframe=${timeframe}`);
+}
+
+/**
+ * Fetch combined rules signal + Finora AI analysis.
+ * @param {string} symbol
+ * @param {string} timeframe
+ */
+export async function fetchFullSignal(symbol, timeframe = "1h") {
+  const encoded = encodeURIComponent(symbol);
+  return apiFetch(`/signals/${encoded}/full?timeframe=${timeframe}`);
+}
+
+/**
+ * Request a Finora-style AI analysis.
+ * @param {string} symbol
+ * @param {string} timeframe
+ * @param {string} [extraContext]  Optional context to pass to the AI
+ */
+export async function fetchAIAnalysis(symbol, timeframe = "1h", extraContext = "") {
+  return apiFetch("/signals/ai-analysis", {
+    method: "POST",
+    body: JSON.stringify({ symbol, timeframe, extra_context: extraContext }),
+  });
+}
+
+/**
+ * Fetch live WEEX ticker for a symbol.
+ * @param {string} symbol
+ */
+export async function fetchTicker(symbol) {
+  const encoded = encodeURIComponent(symbol);
+  return apiFetch(`/signals/ticker/${encoded}`);
+}
+
+/**
+ * List all active WEEX perpetual swap symbols.
+ * @param {string} [quote="USDT"]
+ */
+export async function fetchWeexSymbols(quote = "USDT") {
+  return apiFetch(`/signals/weex-symbols?quote=${quote}`);
 }
