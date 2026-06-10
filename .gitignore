@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+venv/
+.env
+
+# ML models (too large for git — use Git LFS or store separately)
+backend/app/ml/models/*.joblib
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
