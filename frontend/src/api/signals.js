@@ -37,6 +37,37 @@ export async function fetchSymbols(exchange = "weex", quote = "USDT") {
 
 // ─── Signals ──────────────────────────────────────────────────────────────────
 
+// Default watchlist used by the dashboard feed. Override with
+// EXPO_PUBLIC_WATCH_PAIRS="BTC/USDT,ETH/USDT,SOL/USDT" if desired.
+const DEFAULT_WATCHLIST = (
+  process.env.EXPO_PUBLIC_WATCH_PAIRS ||
+  "BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+/**
+ * Fetch signals for the dashboard feed across the default watchlist.
+ *
+ * @param {"rules"|"ml"|"both"} engine — currently only "rules" is supported
+ *        by the backend; "ml"/"both" fall back to the rules engine until
+ *        an ML endpoint is added.
+ * @param {string} timeframe
+ * @param {string} exchange
+ * @returns {Promise<Array>} list of Signal objects (NEUTRAL signals filtered out)
+ */
+export async function fetchSignals(engine = "rules", timeframe = "1h", exchange = "weex") {
+  const results = await Promise.allSettled(
+    DEFAULT_WATCHLIST.map((symbol) => fetchSignal(symbol, timeframe, exchange))
+  );
+
+  return results
+    .filter((r) => r.status === "fulfilled")
+    .map((r) => r.value)
+    .filter((signal) => signal.direction !== "NEUTRAL");
+}
+
 export async function fetchSignal(symbol, timeframe = "1h", exchange = "weex") {
   const encoded = encodeURIComponent(symbol);
   return apiFetch(`/signals/${encoded}?timeframe=${timeframe}&exchange=${exchange}`);

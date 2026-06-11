@@ -46,9 +46,9 @@ export default function SignalCard({ signal, onPress }) {
       <View style={styles.confRow}>
         <Text style={styles.label}>Confidence</Text>
         <View style={styles.barBg}>
-          <View style={[styles.barFill, { width: `${signal.confidence}%`, backgroundColor: accentColor }]} />
+          <View style={[styles.barFill, { width: `${Math.round((signal.confidence || 0) * 100)}%`, backgroundColor: accentColor }]} />
         </View>
-        <Text style={[styles.confPct, { color: accentColor }]}>{signal.confidence}%</Text>
+        <Text style={[styles.confPct, { color: accentColor }]}>{Math.round((signal.confidence || 0) * 100)}%</Text>
       </View>
 
       {/* Price targets */}
@@ -59,8 +59,10 @@ export default function SignalCard({ signal, onPress }) {
       </View>
 
       {/* Reason / timeframe */}
-      <Text style={styles.reason} numberOfLines={2}>{signal.reason}</Text>
-      <Text style={styles.meta}>{signal.engine.toUpperCase()} · {signal.timeframe}</Text>
+      {!!(signal.reasons && signal.reasons.length) && (
+        <Text style={styles.reason} numberOfLines={2}>{signal.reasons.join(" • ")}</Text>
+      )}
+      <Text style={styles.meta}>{(signal.exchange || "").toUpperCase()} · {signal.timeframe}</Text>
     </TouchableOpacity>
   );
 }

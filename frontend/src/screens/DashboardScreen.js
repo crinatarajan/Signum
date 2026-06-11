@@ -1,6 +1,5 @@
 /**
  * screens/DashboardScreen.js — Main signal feed screen.
- * Updated: Firebase push notifications added.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -15,7 +14,6 @@ import {
   AppState,
   Platform,
 } from "react-native";
-import messaging from "@react-native-firebase/messaging";
 import * as Notifications from "expo-notifications";
 import { useSignals } from "../hooks/useSignals";
 import SignalCard from "../components/SignalCard";
@@ -45,28 +43,30 @@ const ENGINES = ["rules", "ml", "both"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function requestAndGetFCMToken() {
-  const authStatus = await messaging().requestPermission();
-  const enabled =
-    authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-    authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-  if (!enabled) return null;
-  return messaging().getToken();
-}
+/**
+ * Request local notification permission and return an Expo push token
+ * (or null if permission was denied / unavailable, e.g. on web/simulator).
+ */
+async function requestAndGetExpoPushToken() {
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
 
-function parseSignalFromMessage(remoteMessage) {
-  const { data = {}, notification = {} } = remoteMessage;
-  return {
-    symbol:     data.symbol    || notification.title || "Unknown",
-    direction:  data.direction || "LONG",
-    confidence: parseFloat(data.confidence) || 0,
-    entry:      parseFloat(data.entry)      || 0,
-    target:     parseFloat(data.target)     || 0,
-    stopLoss:   parseFloat(data.stopLoss)   || 0,
-    timestamp:  data.timestamp || new Date().toISOString(),
-    _id:        data.signalId  || String(Date.now()),
-    _fromPush:  true,
-  };
+  if (existingStatus !== "granted") {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+
+  if (finalStatus !== "granted") return null;
+
+  try {
+    const tokenData = await Notifications.getExpoPushTokenAsync();
+    return tokenData?.data ?? null;
+  } catch (e) {
+    // getExpoPushTokenAsync requires a configured projectId / physical device;
+    // treat failures as "notifications enabled, but no push token available".
+    console.warn("[Notifications] Could not get push token:", e?.message);
+    return null;
+  }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -75,62 +75,29 @@ export default function DashboardScreen({ navigation }) {
   const [engine, setEngine] = useState("rules");
   const { signals, loading, error, lastUpdated, refresh } = useSignals(engine, 60);
 
-  const [pushSignals, setPushSignals]       = useState([]);
-  const [notifAllowed, setNotifAllowed]     = useState(null); // true | false | null
-  const appState                            = useRef(AppState.currentState);
-  const notifListener                       = useRef();
-  const responseListener                    = useRef();
+  const [notifAllowed, setNotifAllowed] = useState(null); // true | false | null
+  const appState          = useRef(AppState.currentState);
+  const notifListener     = useRef();
+  const responseListener  = useRef();
 
-  // ── 1. Register FCM token ──────────────────────────────────────────────────
+  // ── 1. Request notification permission + register token (best-effort) ─────
   useEffect(() => {
-    let unsubRefresh;
     (async () => {
       try {
-        const token = await requestAndGetFCMToken();
+        const token = await requestAndGetExpoPushToken();
+        const { status } = await Notifications.getPermissionsAsync();
+        setNotifAllowed(status === "granted");
         if (token) {
-          setNotifAllowed(true);
           await registerPushToken(token);
-        } else {
-          setNotifAllowed(false);
         }
       } catch (e) {
-        console.warn("[FCM] Token error:", e);
+        console.warn("[Notifications] Setup error:", e?.message);
+        setNotifAllowed(false);
       }
     })();
-
-    unsubRefresh = messaging().onTokenRefresh(async (token) => {
-      try { await registerPushToken(token); } catch (e) { console.warn(e); }
-    });
-
-    return () => unsubRefresh?.();
   }, []);
 
-  // ── 2. Foreground messages ─────────────────────────────────────────────────
-  useEffect(() => {
-    const unsub = messaging().onMessage(async (remoteMessage) => {
-      const signal = parseSignalFromMessage(remoteMessage);
-      setPushSignals((prev) => [signal, ...prev]);
-
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: remoteMessage.notification?.title ?? `${signal.symbol} Signal`,
-          body:  remoteMessage.notification?.body  ??
-                 `${signal.direction} • Confidence: ${(signal.confidence * 100).toFixed(0)}%`,
-          data:  remoteMessage.data,
-        },
-        trigger: null,
-      });
-    });
-    return unsub;
-  }, []);
-
-  // ── 3. Background / quit-state tap ────────────────────────────────────────
-  useEffect(() => {
-    messaging().onNotificationOpenedApp((msg) => handleNotifNav(msg));
-    messaging().getInitialNotification().then((msg) => { if (msg) handleNotifNav(msg); });
-  }, []);
-
-  // ── 4. Expo notification tap listener ─────────────────────────────────────
+  // ── 2. Notification tap listener ───────────────────────────────────────────
   useEffect(() => {
     notifListener.current = Notifications.addNotificationReceivedListener(() => {});
     responseListener.current = Notifications.addNotificationResponseReceivedListener((res) => {
@@ -143,7 +110,7 @@ export default function DashboardScreen({ navigation }) {
     };
   }, [navigation]);
 
-  // ── 5. Refresh on foreground ───────────────────────────────────────────────
+  // ── 3. Refresh on foreground ───────────────────────────────────────────────
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
       if (appState.current.match(/inactive|background/) && next === "active") refresh();
@@ -151,18 +118,6 @@ export default function DashboardScreen({ navigation }) {
     });
     return () => sub.remove();
   }, [refresh]);
-
-  const handleNotifNav = useCallback((msg) => {
-    const signalId = msg?.data?.signalId;
-    if (signalId) navigation.navigate("Detail", { signalId });
-  }, [navigation]);
-
-  // ── Merge API + push signals (deduplicated) ────────────────────────────────
-  const allSignals = React.useMemo(() => {
-    const apiIds = new Set((signals || []).map((s) => s.symbol + s.direction));
-    const newPush = pushSignals.filter((s) => !apiIds.has(s.symbol + s.direction));
-    return [...newPush, ...(signals || [])];
-  }, [signals, pushSignals]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -172,7 +127,7 @@ export default function DashboardScreen({ navigation }) {
       {notifAllowed === false && (
         <View style={styles.permissionBanner}>
           <Text style={styles.permissionText}>
-            🔔 Push notifications disabled — enable in Settings to get live signal alerts.
+            🔔 Notifications disabled — enable in Settings to get live signal alerts.
           </Text>
         </View>
       )}
@@ -217,9 +172,16 @@ export default function DashboardScreen({ navigation }) {
         </View>
       )}
 
+      {/* Loading state (initial load) */}
+      {loading && (!signals || signals.length === 0) && !error && (
+        <View style={styles.empty}>
+          <ActivityIndicator color={COLORS.accent} size="large" />
+        </View>
+      )}
+
       {/* Signal list */}
       <FlatList
-        data={allSignals}
+        data={signals}
         keyExtractor={(item, i) => `${item.symbol}-${item.direction}-${i}`}
         renderItem={({ item }) => (
           <SignalCard
