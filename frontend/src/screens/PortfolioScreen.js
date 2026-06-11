@@ -109,6 +109,40 @@ function AddPositionModal({ visible, onClose, onAdd }) {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // ── Position sizing calculator ──────────────────────────────────────────
+  const [showCalc, setShowCalc] = useState(false);
+  const [accountBalance, setAccountBalance] = useState("");
+  const [riskPct, setRiskPct] = useState("1");
+  const [stopPrice, setStopPrice] = useState("");
+
+  const entry = parseFloat(entryPrice);
+  const stop = parseFloat(stopPrice);
+  const balance = parseFloat(accountBalance);
+  const risk = parseFloat(riskPct);
+
+  const validCalcInputs =
+    !isNaN(entry) && !isNaN(stop) && !isNaN(balance) && !isNaN(risk) &&
+    entry > 0 && balance > 0 && risk > 0 && entry !== stop;
+
+  const riskAmountUsd = validCalcInputs ? (balance * risk) / 100 : null;
+  const stopDistance = validCalcInputs ? Math.abs(entry - stop) : null;
+  const calculatedQty = validCalcInputs ? riskAmountUsd / stopDistance : null;
+  const positionValueUsd = validCalcInputs ? calculatedQty * entry : null;
+
+  // Sanity check: warn if stop is on the wrong side for the chosen direction
+  const stopDirectionMismatch =
+    validCalcInputs &&
+    ((direction === "LONG" && stop >= entry) ||
+     (direction === "SHORT" && stop <= entry));
+
+  const applyCalculatedQty = () => {
+    if (calculatedQty && calculatedQty > 0) {
+      // Use a sensible number of decimals depending on size
+      const decimals = calculatedQty < 1 ? 6 : calculatedQty < 100 ? 4 : 2;
+      setQuantity(calculatedQty.toFixed(decimals));
+    }
+  };
+
   const handleAdd = async () => {
     if (!entryPrice || !quantity) {
       Alert.alert("Missing fields", "Entry price and quantity are required.");
@@ -189,6 +223,95 @@ function AddPositionModal({ visible, onClose, onAdd }) {
             placeholder="e.g. 65000"
             placeholderTextColor={COLORS.muted}
           />
+
+          {/* ── Position size calculator ───────────────────────────────── */}
+          <TouchableOpacity
+            style={styles.calcToggle}
+            onPress={() => setShowCalc((v) => !v)}
+          >
+            <Text style={styles.calcToggleText}>
+              {showCalc ? "▾" : "▸"} Position size calculator
+            </Text>
+          </TouchableOpacity>
+
+          {showCalc && (
+            <View style={styles.calcBox}>
+              <Text style={styles.calcHint}>
+                Size your position based on account risk — never risk more than
+                you can afford to lose on a single trade.
+              </Text>
+
+              <Text style={styles.inputLabel}>Account Balance (USD)</Text>
+              <TextInput
+                style={styles.input}
+                value={accountBalance}
+                onChangeText={setAccountBalance}
+                keyboardType="decimal-pad"
+                placeholder="e.g. 1000"
+                placeholderTextColor={COLORS.muted}
+              />
+
+              <Text style={styles.inputLabel}>Risk per Trade (%)</Text>
+              <TextInput
+                style={styles.input}
+                value={riskPct}
+                onChangeText={setRiskPct}
+                keyboardType="decimal-pad"
+                placeholder="e.g. 1"
+                placeholderTextColor={COLORS.muted}
+              />
+              <Text style={styles.calcSubHint}>
+                Common guidance: 0.5–2% of account balance per trade.
+              </Text>
+
+              <Text style={styles.inputLabel}>Stop-Loss Price (USD)</Text>
+              <TextInput
+                style={styles.input}
+                value={stopPrice}
+                onChangeText={setStopPrice}
+                keyboardType="decimal-pad"
+                placeholder="e.g. 63500"
+                placeholderTextColor={COLORS.muted}
+              />
+
+              {stopDirectionMismatch && (
+                <Text style={styles.calcWarning}>
+                  ⚠ For a {direction} position, the stop-loss should be{" "}
+                  {direction === "LONG" ? "below" : "above"} the entry price.
+                  Double-check your levels.
+                </Text>
+              )}
+
+              {validCalcInputs && !stopDirectionMismatch && (
+                <View style={styles.calcResult}>
+                  <View style={styles.calcRow}>
+                    <Text style={styles.calcLabel}>Risk amount</Text>
+                    <Text style={styles.calcValue}>${riskAmountUsd.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.calcRow}>
+                    <Text style={styles.calcLabel}>Stop distance</Text>
+                    <Text style={styles.calcValue}>
+                      ${stopDistance.toFixed(stopDistance < 1 ? 6 : 2)}
+                    </Text>
+                  </View>
+                  <View style={styles.calcRow}>
+                    <Text style={styles.calcLabel}>Suggested quantity</Text>
+                    <Text style={[styles.calcValue, { color: COLORS.accent, fontWeight: "700" }]}>
+                      {calculatedQty.toFixed(calculatedQty < 1 ? 6 : calculatedQty < 100 ? 4 : 2)}
+                    </Text>
+                  </View>
+                  <View style={styles.calcRow}>
+                    <Text style={styles.calcLabel}>Position value</Text>
+                    <Text style={styles.calcValue}>${positionValueUsd.toFixed(2)}</Text>
+                  </View>
+
+                  <TouchableOpacity style={styles.calcApplyBtn} onPress={applyCalculatedQty}>
+                    <Text style={styles.calcApplyBtnText}>Use this quantity</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
 
           <Text style={styles.inputLabel}>Quantity</Text>
           <TextInput
@@ -387,4 +510,20 @@ const styles = StyleSheet.create({
   addBtnText:   { color: "#fff", fontWeight: "700", fontSize: 15 },
   cancelBtn:    { marginTop: 10, alignItems: "center", paddingVertical: 10 },
   cancelBtnText:{ color: COLORS.muted, fontSize: 14 },
+
+  // Position size calculator
+  calcToggle:    { marginTop: 14, paddingVertical: 6 },
+  calcToggleText:{ color: COLORS.accent, fontSize: 13, fontWeight: "600" },
+  calcBox:       { marginTop: 8, padding: 12, borderRadius: 10,
+                   backgroundColor: COLORS.input, borderWidth: 1, borderColor: COLORS.border },
+  calcHint:      { color: COLORS.muted, fontSize: 11, lineHeight: 16, marginBottom: 4 },
+  calcSubHint:   { color: COLORS.muted, fontSize: 11, marginTop: 4 },
+  calcWarning:   { color: COLORS.warn, fontSize: 12, marginTop: 10, lineHeight: 17 },
+  calcResult:    { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.border },
+  calcRow:       { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
+  calcLabel:     { color: COLORS.muted, fontSize: 12 },
+  calcValue:     { color: COLORS.text, fontSize: 13, fontWeight: "600" },
+  calcApplyBtn:  { marginTop: 8, backgroundColor: COLORS.accent + "30", borderRadius: 8,
+                   borderWidth: 1, borderColor: COLORS.accent, paddingVertical: 10, alignItems: "center" },
+  calcApplyBtnText: { color: COLORS.accent, fontWeight: "700", fontSize: 13 },
 });
