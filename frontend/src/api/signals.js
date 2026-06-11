@@ -12,6 +12,20 @@ const BASE_URL =
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Convert a CCXT-style symbol ("BTC/USDT") into the URL-safe form the
+ * backend expects in path parameters ("BTC-USDT").
+ *
+ * NOTE: do NOT use encodeURIComponent("BTC/USDT") for path segments —
+ * browsers/fetch normalize "%2F" back to "/" before sending the request,
+ * which FastAPI then treats as two path segments and 404s on the route.
+ * The backend's /signals/{symbol} routes accept "-" and convert it back
+ * to "/" internally.
+ */
+function urlSafeSymbol(symbol) {
+  return symbol.replace(/\//g, "-");
+}
+
 async function apiFetch(path, options = {}) {
   const url = `${BASE_URL}${path}`;
   const res = await fetch(url, {
@@ -108,13 +122,13 @@ export async function fetchSignals(engine = "rules", timeframe = "1h", exchange 
 }
 
 export async function fetchSignal(symbol, timeframe = "1h", exchange = "weex") {
-  const encoded = encodeURIComponent(symbol);
-  return apiFetch(`/signals/${encoded}?timeframe=${timeframe}&exchange=${exchange}`);
+  const safe = urlSafeSymbol(symbol);
+  return apiFetch(`/signals/${safe}?timeframe=${timeframe}&exchange=${exchange}`);
 }
 
 export async function fetchFullSignal(symbol, timeframe = "1h", exchange = "weex") {
-  const encoded = encodeURIComponent(symbol);
-  return apiFetch(`/signals/${encoded}/full?timeframe=${timeframe}&exchange=${exchange}`);
+  const safe = urlSafeSymbol(symbol);
+  return apiFetch(`/signals/${safe}/full?timeframe=${timeframe}&exchange=${exchange}`);
 }
 
 export async function fetchAIAnalysis({ symbol, timeframe = "1h", exchange = "weex", limit = 200, extra_context = "" }) {
@@ -125,8 +139,8 @@ export async function fetchAIAnalysis({ symbol, timeframe = "1h", exchange = "we
 }
 
 export async function fetchTicker(symbol, exchange = "weex") {
-  const encoded = encodeURIComponent(symbol);
-  return apiFetch(`/signals/ticker/${encoded}?exchange=${exchange}`);
+  const safe = urlSafeSymbol(symbol);
+  return apiFetch(`/signals/ticker/${safe}?exchange=${exchange}`);
 }
 
 // ─── Backtest ─────────────────────────────────────────────────────────────────
@@ -160,7 +174,8 @@ export async function addPosition({ symbol, exchange, entry_price, quantity, dir
 }
 
 export async function removePosition(symbol) {
-  return apiFetch(`/portfolio/${encodeURIComponent(symbol)}`, { method: "DELETE" });
+  const safe = urlSafeSymbol(symbol);
+  return apiFetch(`/portfolio/${safe}`, { method: "DELETE" });
 }
 
 // ─── Push notifications (existing) ───────────────────────────────────────────
