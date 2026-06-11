@@ -85,11 +85,11 @@ const DEFAULT_WATCHLIST = (
  * @param {string} timeframe
  * @param {string} exchange
  * @param {number} maxWatch — max number of "WATCH" candidates to return
- *        when no active LONG/SHORT signals exist (default 3)
+ *        when no active LONG/SHORT signals exist (default 5)
  * @returns {Promise<Array>} list of Signal objects, each with an added
  *        `display` field: "ACTIVE" for LONG/SHORT, "WATCH" for ranked NEUTRAL
  */
-export async function fetchSignals(engine = "rules", timeframe = "1h", exchange = "weex", maxWatch = 3) {
+export async function fetchSignals(engine = "rules", timeframe = "1h", exchange = "weex", maxWatch = 5) {
   const results = await Promise.allSettled(
     DEFAULT_WATCHLIST.map((symbol) => fetchSignal(symbol, timeframe, exchange))
   );
@@ -141,6 +141,17 @@ export async function fetchAIAnalysis({ symbol, timeframe = "1h", exchange = "we
 export async function fetchTicker(symbol, exchange = "weex") {
   const safe = urlSafeSymbol(symbol);
   return apiFetch(`/signals/ticker/${safe}?exchange=${exchange}`);
+}
+
+/**
+ * Fetch recent OHLCV candles for charting from the backend (WEEX/Binance/
+ * Bybit/OKX via CCXT) — NOT from Coinbase or any other third-party API.
+ * Returns { symbol, timeframe, exchange, candles: [{timestamp, open, high, low, close, volume}, ...] }
+ */
+export async function fetchCandles(symbol, timeframe = "1h", exchange = "weex", limit = 50) {
+  const safe = urlSafeSymbol(symbol);
+  const res = await apiFetch(`/signals/${safe}/candles?timeframe=${timeframe}&exchange=${exchange}&limit=${limit}`);
+  return res.candles;
 }
 
 // ─── Backtest ─────────────────────────────────────────────────────────────────

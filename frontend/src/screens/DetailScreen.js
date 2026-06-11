@@ -17,6 +17,7 @@ import {
   Dimensions,
 } from "react-native";
 import { Svg, Rect, Line, Text as SvgText } from "react-native-svg";
+import { fetchCandles } from "../api/signals";
 
 const COLORS = {
   bg:      "#0E0E1A",
@@ -165,80 +166,53 @@ function CandlestickChart({ candles, entryPrice, targetPrice, stopLossPrice }) {
   );
 }
 
-// ─── Candle Fetcher ───────────────────────────────────────────────────────────
-
-/**
- * Fetches 50 candles from the Coinbase Advanced Trade API (public endpoint).
- * Granularity options: ONE_MINUTE | FIVE_MINUTE | FIFTEEN_MINUTE | ONE_HOUR | ONE_DAY
- */
-async function fetchCandles(symbol, timeframe = "1h") {
-  const granularityMap = {
-    "1m": "ONE_MINUTE",
-    "5m": "FIVE_MINUTE",
-    "15m": "FIFTEEN_MINUTE",
-    "1h": "ONE_HOUR",
-    "1d": "ONE_DAY",
-  };
-  const granularity = granularityMap[timeframe] ?? "ONE_HOUR";
-  // Coinbase uses "BTC-USDT" style product IDs
-  const productId = symbol.includes("-") ? symbol : `${symbol}-USDT`;
-
-  const end   = Math.floor(Date.now() / 1000);
-  const granSeconds = {
-    ONE_MINUTE: 60, FIVE_MINUTE: 300, FIFTEEN_MINUTE: 900,
-    ONE_HOUR: 3600, ONE_DAY: 86400,
-  };
-  const start = end - 50 * (granSeconds[granularity] ?? 3600);
-
-  const url = `https://api.coinbase.com/api/v3/brokerage/products/${productId}/candles` +
-    `?start=${start}&end=${end}&granularity=${granularity}`;
-
-  const res  = await fetch(url);
-  if (!res.ok) throw new Error(`Coinbase API ${res.status}`);
-  const json = await res.json();
-
-  // Coinbase returns { candles: [{start, low, high, open, close, volume}] }
-  // sorted newest-first; reverse to chronological
-  return (json.candles ?? [])
-    .slice(0, 50)
-    .reverse()
-    .map(c => ({
-      timestamp: Number(c.start) * 1000,
-      open:  Number(c.open),
-      high:  Number(c.high),
-      low:   Number(c.low),
-      close: Number(c.close),
-      volume:Number(c.volume),
-    }));
-}
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function DetailScreen({ route, navigation }) {
-  const { signal } = route.params;
-  const isLong     = signal.direction === "LONG";
-  const accentColor = isLong ? COLORS.long : COLORS.short;
-  const rr = Math.abs(signal.target - signal.entry) /
-             Math.abs(signal.stop_loss - signal.entry);
+  const signal = route.params?.signal;
 
-  const [candles, setCandles]       = useState([]);
+  // ── Hooks must run unconditionally, before any early return ───────────
+  const [candles, setCandles]           = useState([]);
   const [chartLoading, setChartLoading] = useState(true);
   const [chartError,   setChartError]   = useState(null);
 
   const loadCandles = useCallback(async () => {
+    if (!signal) return;
     setChartLoading(true);
     setChartError(null);
     try {
-      const data = await fetchCandles(signal.symbol, signal.timeframe ?? "1h");
+      const data = await fetchCandles(signal.symbol, signal.timeframe ?? "1h", signal.exchange ?? "weex");
       setCandles(data);
     } catch (e) {
       setChartError(e.message ?? "Failed to load chart");
     } finally {
       setChartLoading(false);
     }
-  }, [signal.symbol, signal.timeframe]);
+  }, [signal?.symbol, signal?.timeframe, signal?.exchange]);
 
   useEffect(() => { loadCandles(); }, [loadCandles]);
+
+  if (!signal) {
+    return (
+      <View style={styles.container}>
+        <TouchableOpacity style={styles.back} onPress={() => navigation.goBack()}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+        <View style={styles.chartPlaceholder}>
+          <Text style={styles.chartError}>No signal data was passed to this screen.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  const isWatch = signal.display === "WATCH";
+  const effectiveDirection = isWatch ? (signal._leaning || "LONG") : signal.direction;
+  const isLong = effectiveDirection === "LONG";
+  const accentColor = isWatch ? "#FFB020" : (isLong ? COLORS.long : COLORS.short);
+  const rrDenominator = Math.abs(signal.stop_loss - signal.entry);
+  const rr = rrDenominator > 0
+    ? Math.abs(signal.target - signal.entry) / rrDenominator
+    : 0;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -250,7 +224,9 @@ export default function DetailScreen({ route, navigation }) {
       {/* Symbol + direction */}
       <View style={styles.heroRow}>
         <Text style={styles.symbol}>{signal.symbol}</Text>
-        <Text style={[styles.direction, { color: accentColor }]}>{signal.direction}</Text>
+        <Text style={[styles.direction, { color: accentColor }]}>
+          {isWatch ? `WATCH · ${effectiveDirection}` : signal.direction}
+        </Text>
       </View>
 
       {/* ── Candlestick Chart ── */}
@@ -296,9 +272,9 @@ export default function DetailScreen({ route, navigation }) {
       <View style={styles.confContainer}>
         <Text style={styles.sectionLabel}>Confidence</Text>
         <View style={styles.barBg}>
-          <View style={[styles.barFill, { width: `${signal.confidence}%`, backgroundColor: accentColor }]} />
+          <View style={[styles.barFill, { width: `${Math.round((signal.confidence || 0) * 100)}%`, backgroundColor: accentColor }]} />
         </View>
-        <Text style={[styles.confValue, { color: accentColor }]}>{signal.confidence}%</Text>
+        <Text style={[styles.confValue, { color: accentColor }]}>{Math.round((signal.confidence || 0) * 100)}%</Text>
       </View>
 
       {/* Price levels */}
@@ -322,12 +298,18 @@ export default function DetailScreen({ route, navigation }) {
       {/* Signal reason */}
       <View style={styles.reasonCard}>
         <Text style={styles.sectionLabel}>Signal Reason</Text>
-        <Text style={styles.reasonText}>{signal.reason}</Text>
+        {signal.reasons && signal.reasons.length > 0 ? (
+          signal.reasons.map((reason, i) => (
+            <Text key={i} style={styles.reasonText}>• {reason}</Text>
+          ))
+        ) : (
+          <Text style={styles.reasonText}>No specific confluence factors triggered.</Text>
+        )}
       </View>
 
       {/* Meta */}
       <View style={styles.metaRow}>
-        <Chip label="Engine"    value={signal.engine.toUpperCase()} />
+        <Chip label="Exchange"  value={(signal.exchange || "weex").toUpperCase()} />
         <Chip label="Timeframe" value={signal.timeframe} />
       </View>
     </ScrollView>

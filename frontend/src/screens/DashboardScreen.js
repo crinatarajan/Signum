@@ -193,7 +193,7 @@ export default function DashboardScreen({ navigation }) {
           signals && signals.length > 0 ? (
             <Text style={styles.listHeader}>
               {signals[0].display === "WATCH"
-                ? "🔎 No active setups right now — closest pairs to watch:"
+                ? `🔎 No active setups right now — top ${signals.length} closest pairs to watch:`
                 : "✅ Active setups:"}
             </Text>
           ) : null

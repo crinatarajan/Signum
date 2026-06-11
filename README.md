@@ -14,6 +14,14 @@ Signum fetches live OHLCV market data from supported exchanges via CCXT, runs it
 3. **Finora AI** — Claude-powered natural-language trade analysis with SMC/ICT framing, key levels, and a concrete trade setup (entry zone, TP1, TP2, SL)
 4. **Backtester** — simulates the rules engine over historical candles and reports win rate, P&L curve, and individual trades
 
+> ⚠️ **This is an analysis and signal-tracking tool, not a trading bot.**
+> Signum does **not** place, modify, or close trades on any exchange. It
+> surfaces signals based on technical indicators, ML models, and AI
+> commentary — all of which can be wrong. Always validate with the
+> Backtest tab, treat Finora AI output as a sanity check rather than a
+> trigger, and never risk money you can't afford to lose. Nothing in this
+> app is financial advice.
+
 ---
 
 ## 🏗️ Architecture
@@ -277,9 +285,67 @@ EXPO_PUBLIC_API_URL=http://192.168.x.x:8000/api
 | `POST` | `/api/portfolio` | Add a position |
 | `DELETE` | `/api/portfolio/{symbol}` | Remove a position |
 
-**Symbol format:** URL-encoded or with a dash, e.g. `BTC-USDT` or `BTC%2FUSDT` for `BTC/USDT`.
+**Symbol format:** path parameters use a dash in place of the slash, e.g. `BTC-USDT` for `BTC/USDT` (the backend converts `-` → `/` internally). Note: `encodeURIComponent("BTC/USDT")` does **not** work for path segments — browsers normalize `%2F` back to `/` before sending the request, which 404s against `/{symbol}` routes. Always use the dash form.
 
 Full interactive docs at `http://127.0.0.1:8000/docs` when the backend is running.
+
+---
+
+## 📊 Dashboard Behavior & Watchlist
+
+The Dashboard polls a **watchlist** of pairs every 60 seconds and shows one of two states:
+
+- **✅ Active setups** — any pair where the rules engine's bullish/bearish
+  confluence score crosses the activation threshold (≥ 1.5 out of 4) gets a
+  LONG or SHORT card with confidence %, entry/target/stop, and the reasons
+  behind the signal.
+- **🔎 Watch list** — markets are NEUTRAL most of the time. When *no* pair
+  currently qualifies as an active setup, the Dashboard instead shows the
+  top-ranked NEUTRAL pairs — the ones **closest** to crossing the threshold —
+  labeled `WATCH · LONG` or `WATCH · SHORT` based on which side of the
+  confluence they're leaning toward, with a "Setup score" bar instead of
+  "Confidence". This means there's always something useful to look at, even
+  when nothing is "ready" yet.
+
+### Customizing the watchlist
+
+By default the Dashboard checks `BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT`.
+Override this in `frontend/.env`:
+
+```env
+EXPO_PUBLIC_WATCH_PAIRS=BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,CRV/USDT,XRP/USDT,CVX/USDT,XPIN/USDT
+```
+
+Restart `npx expo start` after changing this (env vars are read at build time).
+
+### Symbol picker
+
+The Backtest and Add Position screens use a **symbol picker** —
+a text field with a filterable dropdown of common WEEX perpetual pairs
+(`frontend/src/constants/pairs.js`). You can also type any symbol manually
+if it's not in the curated list (e.g. a newly-listed pair).
+
+---
+
+## 💼 Portfolio (Manual Tracking Only)
+
+The Portfolio tab is a **trade journal**, not an order-execution feature.
+You log positions you've taken on your own exchange account — symbol,
+direction, entry price, quantity, notes — and Signum polls live ticker
+prices to show real-time unrealized P&L.
+
+This closes the feedback loop: it lets you compare what Signum suggested
+against what actually happened to a position you took, which is the best
+way to evaluate (and tune) the signal engine over time.
+
+**Position size calculator** — when adding a position, expand "Position
+size calculator" to compute a suggested quantity from:
+- Account balance (USD)
+- Risk per trade (%) — common guidance is 0.5–2% per trade
+- Stop-loss price
+
+It returns the risk amount in USD, stop distance, suggested quantity, and
+total position value, with a one-tap "Use this quantity" button.
 
 ---
 
@@ -323,9 +389,12 @@ Models are saved to `backend/app/ml/models/` (excluded from git via `.gitignore`
 - [x] Candlestick chart in detail screen
 - [x] FinoraAnalysisCard UI component
 - [x] Backtest engine (API + CLI) with equity curve and trade list
-- [x] Portfolio tracking screen
+- [x] Portfolio tracking screen with position-size calculator
+- [x] Watchlist ranking — always-on "active setup" or "closest to watch" feed
+- [x] Symbol picker with curated pair list across Backtest / Add Position
 - [ ] LSTM model packaging and pretrained models
 - [ ] Push notifications
+- [ ] Live ML signal endpoint (currently rules-only; ML toggle in Settings is UI-only until trained model is wired up)
 
 ---
 

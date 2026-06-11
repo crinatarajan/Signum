@@ -195,6 +195,33 @@ async def get_full_signal(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{symbol}/candles", summary="Recent OHLCV candles for charting")
+async def get_candles(
+    symbol: str,
+    timeframe: str = Query("1h"),
+    exchange: str = Query("weex"),
+    limit: int = Query(50, ge=10, le=500),
+):
+    symbol = symbol.replace("-", "/")
+    try:
+        df = fetch_ohlcv(symbol, timeframe=timeframe, limit=limit, exchange_name=exchange)
+        candles = [
+            {
+                "timestamp": int(idx.timestamp() * 1000),
+                "open": round(float(row["open"]), 8),
+                "high": round(float(row["high"]), 8),
+                "low": round(float(row["low"]), 8),
+                "close": round(float(row["close"]), 8),
+                "volume": round(float(row["volume"]), 8),
+            }
+            for idx, row in df.tail(limit).iterrows()
+        ]
+        return {"symbol": symbol, "timeframe": timeframe, "exchange": exchange, "candles": candles}
+    except Exception as e:
+        logger.error("Candles error for %s: %s", symbol, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/ticker/{symbol}", summary="Live ticker")
 async def get_ticker(
     symbol: str,
