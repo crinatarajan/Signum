@@ -16,6 +16,7 @@ import {
   Dimensions,
 } from "react-native";
 import { runBacktest } from "../api/signals";
+import SymbolPicker from "../components/SymbolPicker";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 
@@ -139,15 +140,7 @@ export default function BacktestScreen() {
       <View style={styles.panel}>
         <Text style={styles.panelTitle}>Configuration</Text>
 
-        <Text style={styles.inputLabel}>Symbol</Text>
-        <TextInput
-          style={styles.input}
-          value={symbol}
-          onChangeText={setSymbol}
-          autoCapitalize="characters"
-          placeholder="BTC/USDT"
-          placeholderTextColor={COLORS.muted}
-        />
+        <SymbolPicker value={symbol} onChange={setSymbol} placeholder="BTC/USDT" />
 
         <Text style={styles.inputLabel}>Exchange</Text>
         <View style={styles.toggleRow}>

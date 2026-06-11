@@ -189,6 +189,15 @@ export default function DashboardScreen({ navigation }) {
             onPress={() => navigation.navigate("Detail", { signal: item })}
           />
         )}
+        ListHeaderComponent={
+          signals && signals.length > 0 ? (
+            <Text style={styles.listHeader}>
+              {signals[0].display === "WATCH"
+                ? "🔎 No active setups right now — closest pairs to watch:"
+                : "✅ Active setups:"}
+            </Text>
+          ) : null
+        }
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={COLORS.accent} />
@@ -196,9 +205,9 @@ export default function DashboardScreen({ navigation }) {
         ListEmptyComponent={
           !loading && (
             <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No active setups</Text>
+              <Text style={styles.emptyTitle}>No data available</Text>
               <Text style={styles.emptySubtitle}>
-                All pairs are below confidence threshold. Pull to refresh.
+                Couldn't load signals for your watchlist. Pull to refresh.
               </Text>
             </View>
           )
@@ -228,6 +237,8 @@ const styles = StyleSheet.create({
   toggleText:       { color: COLORS.muted, fontSize: 12, fontWeight: "600", letterSpacing: 0.5 },
   toggleTextActive: { color: "#fff" },
   list:             { paddingHorizontal: 16, paddingBottom: 32 },
+  listHeader:       { color: COLORS.muted, fontSize: 12, fontWeight: "600",
+                      marginBottom: 10, marginTop: 4 },
   errorBox:         { margin: 16, padding: 14, backgroundColor: "#FF5C5C22",
                       borderRadius: 10, borderWidth: 1, borderColor: "#FF5C5C44",
                       flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

@@ -18,6 +18,7 @@ const COLORS = {
   long:    "#00C48C",    // green
   short:   "#FF5C5C",    // red
   neutral: "#888",
+  watch:   "#FFB020",    // amber — "watch" candidates
   bg:      "#0E0E1A",
   card:    "#161625",
   border:  "#252540",
@@ -26,9 +27,25 @@ const COLORS = {
 };
 
 export default function SignalCard({ signal, onPress }) {
-  const isLong  = signal.direction === "LONG";
-  const isShort = signal.direction === "SHORT";
-  const accentColor = isLong ? COLORS.long : isShort ? COLORS.short : COLORS.neutral;
+  const isWatch = signal.display === "WATCH";
+  const isLong  = !isWatch && signal.direction === "LONG";
+  const isShort = !isWatch && signal.direction === "SHORT";
+  const accentColor = isWatch
+    ? COLORS.watch
+    : isLong ? COLORS.long : isShort ? COLORS.short : COLORS.neutral;
+
+  // For WATCH cards, show the "leaning" direction (what it would become
+  // if confluence strengthens) rather than NEUTRAL.
+  const badgeLabel = isWatch ? `WATCH · ${signal._leaning || "—"}` : signal.direction;
+
+  // Score progress: for active signals use confidence (0-1), for watch
+  // candidates show the raw score relative to the activation threshold.
+  const maxScore = signal.max_score || 4;
+  const watchScore = Math.max(signal.bullish_score || 0, signal.bearish_score || 0);
+  const progressPct = isWatch
+    ? Math.round((watchScore / maxScore) * 100)
+    : Math.round((signal.confidence || 0) * 100);
+  const progressLabel = isWatch ? "Setup score" : "Confidence";
 
   return (
     <TouchableOpacity style={[styles.card, { borderLeftColor: accentColor }]} onPress={onPress}>
@@ -37,25 +54,31 @@ export default function SignalCard({ signal, onPress }) {
         <Text style={styles.symbol}>{signal.symbol}</Text>
         <View style={[styles.badge, { backgroundColor: accentColor + "22", borderColor: accentColor }]}>
           <Text style={[styles.badgeText, { color: accentColor }]}>
-            {signal.direction}
+            {badgeLabel}
           </Text>
         </View>
       </View>
 
-      {/* Confidence bar */}
+      {/* Confidence / setup score bar */}
       <View style={styles.confRow}>
-        <Text style={styles.label}>Confidence</Text>
+        <Text style={styles.label}>{progressLabel}</Text>
         <View style={styles.barBg}>
-          <View style={[styles.barFill, { width: `${Math.round((signal.confidence || 0) * 100)}%`, backgroundColor: accentColor }]} />
+          <View style={[styles.barFill, { width: `${progressPct}%`, backgroundColor: accentColor }]} />
         </View>
-        <Text style={[styles.confPct, { color: accentColor }]}>{Math.round((signal.confidence || 0) * 100)}%</Text>
+        <Text style={[styles.confPct, { color: accentColor }]}>{progressPct}%</Text>
       </View>
+
+      {isWatch && (
+        <Text style={styles.watchHint}>
+          Below confidence threshold — not an active setup yet, but closest of your watchlist.
+        </Text>
+      )}
 
       {/* Price targets */}
       <View style={styles.row}>
         <PriceCell label="Entry"     value={signal.entry}     />
-        <PriceCell label="Target"    value={signal.target}    color={COLORS.long} />
-        <PriceCell label="Stop Loss" value={signal.stop_loss} color={COLORS.short} />
+        <PriceCell label={isWatch ? "If target" : "Target"}    value={signal.target}    color={COLORS.long} />
+        <PriceCell label={isWatch ? "If stop" : "Stop Loss"} value={signal.stop_loss} color={COLORS.short} />
       </View>
 
       {/* Reason / timeframe */}
@@ -152,6 +175,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 8,
     lineHeight: 16,
+  },
+  watchHint: {
+    color: COLORS.watch,
+    fontSize: 11,
+    marginBottom: 10,
+    lineHeight: 16,
+    fontStyle: "italic",
   },
   meta: {
     color: COLORS.muted,

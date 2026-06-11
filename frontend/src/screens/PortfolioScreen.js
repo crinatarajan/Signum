@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { fetchPortfolio, addPosition, removePosition } from "../api/signals";
+import SymbolPicker from "../components/SymbolPicker";
 
 const COLORS = {
   bg:      "#0E0E1A",
@@ -173,15 +174,7 @@ function AddPositionModal({ visible, onClose, onAdd }) {
         <ScrollView contentContainerStyle={styles.modalContent}>
           <Text style={styles.modalTitle}>Add Position</Text>
 
-          <Text style={styles.inputLabel}>Symbol</Text>
-          <TextInput
-            style={styles.input}
-            value={symbol}
-            onChangeText={setSymbol}
-            autoCapitalize="characters"
-            placeholder="BTC/USDT"
-            placeholderTextColor={COLORS.muted}
-          />
+          <SymbolPicker value={symbol} onChange={setSymbol} placeholder="BTC/USDT" />
 
           <Text style={styles.inputLabel}>Exchange</Text>
           <View style={styles.toggleRow}>
@@ -401,7 +394,12 @@ export default function PortfolioScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Portfolio</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Portfolio</Text>
+          <Text style={styles.headerSubtitle}>
+            Manual tracking only — Signum doesn't place trades
+          </Text>
+        </View>
         <TouchableOpacity style={styles.addIconBtn} onPress={() => setModalVisible(true)}>
           <Text style={styles.addIconText}>＋</Text>
         </TouchableOpacity>
@@ -456,6 +454,7 @@ const styles = StyleSheet.create({
   header:       { flexDirection: "row", alignItems: "center", justifyContent: "space-between",
                   paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16 },
   headerTitle:  { fontSize: 24, fontWeight: "700", color: COLORS.text },
+  headerSubtitle: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
   addIconBtn:   { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.accent,
                   alignItems: "center", justifyContent: "center" },
   addIconText:  { color: "#fff", fontSize: 20, lineHeight: 22 },

@@ -57,15 +57,54 @@ const DEFAULT_WATCHLIST = (
  * @param {string} exchange
  * @returns {Promise<Array>} list of Signal objects (NEUTRAL signals filtered out)
  */
-export async function fetchSignals(engine = "rules", timeframe = "1h", exchange = "weex") {
+/**
+ * Fetch signals for the dashboard feed across the watchlist.
+ *
+ * Returns LONG/SHORT signals if any qualify. If none do (the common case —
+ * markets are NEUTRAL most of the time), returns the top-ranked NEUTRAL
+ * candidates as "WATCH" — the pairs closest to a confluence-based setup,
+ * so there's always something useful to look at.
+ *
+ * @param {"rules"|"ml"|"both"} engine — currently only "rules" is supported
+ *        by the backend; "ml"/"both" fall back to the rules engine until
+ *        an ML endpoint is added.
+ * @param {string} timeframe
+ * @param {string} exchange
+ * @param {number} maxWatch — max number of "WATCH" candidates to return
+ *        when no active LONG/SHORT signals exist (default 3)
+ * @returns {Promise<Array>} list of Signal objects, each with an added
+ *        `display` field: "ACTIVE" for LONG/SHORT, "WATCH" for ranked NEUTRAL
+ */
+export async function fetchSignals(engine = "rules", timeframe = "1h", exchange = "weex", maxWatch = 3) {
   const results = await Promise.allSettled(
     DEFAULT_WATCHLIST.map((symbol) => fetchSignal(symbol, timeframe, exchange))
   );
 
-  return results
+  const signals = results
     .filter((r) => r.status === "fulfilled")
-    .map((r) => r.value)
-    .filter((signal) => signal.direction !== "NEUTRAL");
+    .map((r) => r.value);
+
+  const active = signals
+    .filter((s) => s.direction !== "NEUTRAL")
+    .map((s) => ({ ...s, display: "ACTIVE" }));
+
+  if (active.length > 0) {
+    // Sort by confidence, highest first
+    return active.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+  }
+
+  // Nothing active — rank NEUTRAL candidates by how close they are to a
+  // setup (max of bullish/bearish score relative to the threshold).
+  const ranked = signals
+    .map((s) => {
+      const score = Math.max(s.bullish_score || 0, s.bearish_score || 0);
+      const leaning = (s.bullish_score || 0) >= (s.bearish_score || 0) ? "LONG" : "SHORT";
+      return { ...s, display: "WATCH", _score: score, _leaning: leaning };
+    })
+    .sort((a, b) => b._score - a._score)
+    .slice(0, maxWatch);
+
+  return ranked;
 }
 
 export async function fetchSignal(symbol, timeframe = "1h", exchange = "weex") {

@@ -28,6 +28,9 @@ class Signal:
     reasons: list[str] = field(default_factory=list)
     timeframe: str = "1h"
     exchange: str = "weex"
+    bullish_score: float = 0.0
+    bearish_score: float = 0.0
+    max_score: float = 4.0
 
 
 # ---------------------------------------------------------------------------
@@ -142,8 +145,14 @@ def generate_signal(
     else:
         direction = "NEUTRAL"
         confidence = 0.0
-        target = price
-        stop_loss = price
+        # Still compute "would-be" levels based on the leaning side, so a
+        # near-threshold signal can be surfaced as a "Watch" candidate.
+        if bullish_score >= bearish_score:
+            target = price + 2.5 * atr_val
+            stop_loss = price - 1.5 * atr_val
+        else:
+            target = price - 2.5 * atr_val
+            stop_loss = price + 1.5 * atr_val
 
     risk = abs(price - stop_loss)
     reward = abs(target - price)
@@ -160,4 +169,7 @@ def generate_signal(
         reasons=reasons,
         timeframe=timeframe,
         exchange="weex",
+        bullish_score=round(bullish_score, 2),
+        bearish_score=round(bearish_score, 2),
+        max_score=max_score,
     )
