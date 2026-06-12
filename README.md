@@ -6,7 +6,7 @@
 
 ## 🧠 What It Does
 
-Signum fetches live OHLCV market data from supported exchanges via CCXT, runs it through a multi-layer signal engine, and delivers **LONG / SHORT / NEUTRAL signals** with confidence scores directly to your phone.
+Signum fetches live OHLCV market data from supported exchanges via CCXT, runs it through a multi-layer signal engine, and delivers signals with confidence scores directly to your phone.
 
 **Signal layers:**
 1. **Rules engine** — RSI, MACD, Bollinger Bands, EMA trend, plus funding rate & open interest filters
