@@ -1,6 +1,6 @@
 # 📡 Signum
 
-> **AI-powered crypto trading signal engine** — rules-based + ML + Finora AI analysis, built on multi-exchange perpetual swap data (WEEX, Binance, Bybit, OKX) with a React Native mobile frontend.
+> **AI-powered trading signal engine** — rules-based + ML + Finora AI analysis, built on multi-exchange perpetual swap data (WEEX, Binance, Bybit, OKX) with a React Native mobile frontend.
 
 ---
 
